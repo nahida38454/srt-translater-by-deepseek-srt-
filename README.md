@@ -1,6 +1,7 @@
 # srt-translater-by-deepseek-srt-
   srt字幕文件翻译器,采用deepseek自己鞭策自己的理念
   本人没有编程基础,此项目完全使用AI
+  https://chat.deepseek.com/share/ej8g7x56813tfg0wd6
   每个issues都将交给deepseek自己修复
   不保证可用性,可随意复制`修改
   
