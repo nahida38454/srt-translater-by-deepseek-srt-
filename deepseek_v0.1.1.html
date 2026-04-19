@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>SRT/BCC 双语翻译 · 智能分词拆分 · 最终版</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; font-family: system-ui, 'Segoe UI', Roboto, sans-serif; }
+        body { background: #f5f7fc; padding: 24px 16px; min-height: 100vh; display: flex; justify-content: center; }
+        .container { max-width: 1300px; width: 100%; background: white; border-radius: 28px; box-shadow: 0 12px 30px rgba(0,0,0,0.08); padding: 28px 24px; }
+        h1 { font-size: 2rem; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .badge { background: #e6edfb; color: #2563eb; font-size: 0.8rem; padding: 4px 10px; border-radius: 30px; margin-left: 10px; }
+        .subhead { color: #64748b; margin-bottom: 28px; border-left: 4px solid #3b82f6; padding-left: 18px; }
+        .upload-area { background: #f8fafd; border: 2px dashed #cbd5e1; border-radius: 20px; padding: 32px; text-align: center; cursor: pointer; margin-bottom: 28px; }
+        .upload-area:hover { border-color: #3b82f6; background: #f0f7ff; }
+        .file-info { margin-top: 12px; font-weight: 500; }
+        input[type="file"] { display: none; }
+        .lang-input-row { display: flex; align-items: center; gap: 16px; margin: 20px 0 10px; background: #f8fafc; padding: 12px 18px; border-radius: 40px; }
+        .lang-input-row label { font-weight: 500; color: #334155; }
+        .lang-input-row input { border: 1px solid #cbd5e1; border-radius: 30px; padding: 8px 16px; font-size: 0.95rem; width: 160px; }
+        .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 24px 0; }
+        .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 20px; }
+        .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .btn { background: white; border: 1px solid #cbd5e1; border-radius: 40px; padding: 8px 16px; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+        .btn-primary { background: #2563eb; border-color: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-outline-blue { border-color: #bfdbfe; background: #eff6ff; color: #1e40af; }
+        textarea { width: 100%; padding: 16px; border: 1.5px solid #e2e8f0; border-radius: 18px; font-size: 0.95rem; line-height: 1.5; background: #fafcff; resize: vertical; min-height: 200px; font-family: monospace; }
+        .preview-table-wrapper { max-height: 400px; overflow-y: auto; border-radius: 18px; border: 1px solid #e2e8f0; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; padding: 12px; background: #f1f5f9; position: sticky; top: 0; }
+        td { padding: 10px 12px; border-bottom: 1px solid #edf2f7; vertical-align: top; }
+        .word-count { font-family: monospace; background: #e2e8f0; padding: 2px 6px; border-radius: 20px; font-size: 0.7rem; }
+        .warning { color: #b45309; }
+        .footer-actions { display: flex; justify-content: flex-end; gap: 16px; margin-top: 24px; }
+        .alert { background: #fef9c3; color: #854d0e; padding: 8px 18px; border-radius: 40px; }
+        .btn:disabled { opacity: 0.5; pointer-events: none; }
+        .error-text { color: #dc2626; }
+        @media (max-width: 700px) { .card-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📝 SubMerge Pro · 双语分词拆分 <span class="badge">兼容SRT/BCC/多编码</span></h1>
+    <div class="subhead">上传字幕 → 一键复制完整提示词发给DeepSeek → 粘贴译文 → 自动拆分双语且单条词数≤10 → 导出【已翻译-语言】SRT</div>
+
+    <div class="upload-area" id="dropZone">
+        <div>📂 点击或拖拽上传字幕文件（.srt / .bcc / .txt）</div>
+        <div style="color:#64748b; font-size:0.9rem;">支持 UTF-8、Shift-JIS、GBK、ISO-8859-1 等多种编码</div>
+        <div class="file-info" id="fileInfo"></div>
+    </div>
+    <input type="file" id="fileInput" accept=".srt,.bcc,.txt,text/plain">
+
+    <div class="lang-input-row">
+        <label>🌐 目标语言 (用于提示词及文件名):</label>
+        <input type="text" id="langNameInput" placeholder="例如: 俄语" value="俄语" maxlength="20">
+        <span style="color:#64748b; font-size:0.85rem;">点击「复制」将生成完整提示词</span>
+    </div>
+
+    <div class="status-bar" id="statusArea">
+        <span id="entryCountDisplay" class="alert">⏳ 未加载字幕</span>
+        <span style="margin-left: 16px;">📏 双语总词数上限: <strong>10</strong> (英文按词，中文2字=1词)</span>
+    </div>
+
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">
+                <h3>📤 合并文本预览</h3>
+                <button class="btn btn-outline-blue btn-sm" id="copyMergedBtn" disabled>📋 复制完整提示词</button>
+            </div>
+            <textarea id="mergedTextView" placeholder="上传后显示带编号的原文……" readonly></textarea>
+            <div style="margin-top: 8px; color:#475569;">💡 点击复制按钮，即可获得可直接发送给DeepSeek的完整提示词（含目标语言与字幕内容）</div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <h3>📥 粘贴译文</h3>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-outline-blue btn-sm" id="pasteTranslationBtn" disabled>📎 粘贴</button>
+                    <button class="btn btn-primary btn-sm" id="applyTranslationBtn" disabled>✨ 应用并拆分</button>
+                </div>
+            </div>
+            <textarea id="translationInput" placeholder="粘贴DeepSeek返回的带编号译文……"></textarea>
+            <div style="margin-top:8px; display:flex; gap:8px;">
+                <button class="btn btn-sm" id="clearTranslationBtn" disabled>🧹 清空</button>
+                <span id="parseHint" style="color:#2563eb;"></span>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 10px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h3>📋 字幕预览 (原文 / 译文) · 超限条目将自动拆分</h3>
+            <button class="btn btn-primary" id="exportBtn" disabled>⬇ 导出【已翻译-语言】SRT</button>
+        </div>
+        <div class="preview-table-wrapper">
+            <table id="previewTable">
+                <thead><tr><th>#</th><th>时间轴</th><th>原文</th><th>译文</th><th>词数</th></tr></thead>
+                <tbody id="tableBody"><tr><td colspan="5" class="empty-message">上传字幕文件后显示</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="footer-actions">
+        <button class="btn" id="resetBtn" disabled>🔄 重置翻译</button>
+    </div>
+    <div style="margin-top: 16px; font-size:0.85rem; color:#475569; background:#f1f5f9; padding:12px; border-radius:16px;">
+        ⚙️ 拆分规则：若原文+译文总词数＞10，则按时间均分原轴，保证每条双语词数≤10，且每段时长≥1ms。<br>
+        📁 导出文件命名：<strong>【已翻译-语言名】原文件名.srt</strong> (时间轴统一为SRT逗号毫秒格式)<br>
+        🔤 编码支持：自动尝试 UTF-8、Shift-JIS、EUC-JP、GBK、ISO-8859-1、Windows-1252 等。<br>
+        🧹 空行优化：若拆分后某条仅有原文或仅有译文，则仅输出单行，无多余空行。<br>
+        ⏱️ 时间修复：原始字幕中持续时间为0的条目会自动延长1ms，确保播放正常。
+    </div>
+</div>
+
+<script>
+    (function(){
+        // ---------- 单词计数 ----------
+        function countWords(text) {
+            if (!text) return 0;
+            const segments = text.split(/([\u4e00-\u9fa5]+)/g); 
+            let total = 0;
+            for (let seg of segments) {
+                if (!seg) continue;
+                if (/[\u4e00-\u9fa5]/.test(seg)) {
+                    total += Math.ceil(seg.length / 2);
+                } else {
+                    const words = seg.match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?/g) || [];
+                    total += words.length;
+                }
+            }
+            return total;
+        }
+
+        // ---------- 拆分双语文本 ----------
+        function splitPairedText(orig, trans, maxWords = 10) {
+            if (!orig && !trans) return [{ orig: '', trans: '' }];
+            
+            function tokenize(text) {
+                const tokens = [];
+                const segments = text.split(/([\u4e00-\u9fa5]+)/g);
+                for (let seg of segments) {
+                    if (!seg) continue;
+                    if (/[\u4e00-\u9fa5]/.test(seg)) {
+                        for (let i = 0; i < seg.length; i += 2) {
+                            tokens.push(seg.substring(i, i+2));
+                        }
+                    } else {
+                        const words = seg.match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?|\S/g) || [];
+                        tokens.push(...words);
+                    }
+                }
+                return tokens;
+            }
+
+            const origTokens = tokenize(orig);
+            const transTokens = tokenize(trans);
+            
+            const chunks = [];
+            let oIdx = 0, tIdx = 0;
+            
+            while (oIdx < origTokens.length || tIdx < transTokens.length) {
+                let oChunkTokens = [];
+                let tChunkTokens = [];
+                let currentWords = 0;
+                
+                while ((oIdx < origTokens.length || tIdx < transTokens.length) && currentWords < maxWords) {
+                    const canTakeOrig = oIdx < origTokens.length;
+                    const canTakeTrans = tIdx < transTokens.length;
+                    
+                    if (canTakeOrig && canTakeTrans) {
+                        if (currentWords + 2 <= maxWords) {
+                            oChunkTokens.push(origTokens[oIdx++]);
+                            tChunkTokens.push(transTokens[tIdx++]);
+                            currentWords += 2;
+                        } else break;
+                    } else if (canTakeOrig) {
+                        if (currentWords + 1 <= maxWords) {
+                            oChunkTokens.push(origTokens[oIdx++]);
+                            currentWords += 1;
+                        } else break;
+                    } else if (canTakeTrans) {
+                        if (currentWords + 1 <= maxWords) {
+                            tChunkTokens.push(transTokens[tIdx++]);
+                            currentWords += 1;
+                        } else break;
+                    }
+                }
+                
+                let origChunk = oChunkTokens.join('');
+                let transChunk = tChunkTokens.join('');
+                origChunk = origChunk.replace(/([a-zA-Z0-9])([\u4e00-\u9fa5])/g, '$1 $2').replace(/([\u4e00-\u9fa5])([a-zA-Z0-9])/g, '$1 $2');
+                transChunk = transChunk.replace(/([a-zA-Z0-9])([\u4e00-\u9fa5])/g, '$1 $2').replace(/([\u4e00-\u9fa5])([a-zA-Z0-9])/g, '$1 $2');
+                chunks.push({ orig: origChunk.trim(), trans: transChunk.trim() });
+            }
+            return chunks.length ? chunks : [{ orig: orig || '', trans: trans || '' }];
+        }
+
+        // ---------- 时间转换 (增强兼容) ----------
+        function timeToMs(timeStr) {
+            const parts = timeStr.split(':');
+            const hours = parseInt(parts[0]);
+            const minutes = parseInt(parts[1]);
+            const secAndMs = parts[2];
+            
+            let seconds, millis;
+            if (secAndMs.includes(',')) {
+                const [sec, ms] = secAndMs.split(',');
+                seconds = parseInt(sec);
+                millis = parseInt(ms.padEnd(3, '0'));
+            } else if (secAndMs.includes('.')) {
+                const [sec, frames] = secAndMs.split('.');
+                seconds = parseInt(sec);
+                const frameNum = parseInt(frames.padEnd(2, '0'));
+                millis = Math.round(frameNum * 40); // 25fps
+            } else {
+                seconds = parseInt(secAndMs);
+                millis = 0;
+            }
+            return ((hours * 3600 + minutes * 60 + seconds) * 1000 + millis);
+        }
+
+        function msToTime(ms) {
+            const hours = Math.floor(ms / 3600000);
+            ms %= 3600000;
+            const minutes = Math.floor(ms / 60000);
+            ms %= 60000;
+            const seconds = Math.floor(ms / 1000);
+            const millis = ms % 1000;
+            return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')},${String(millis).padStart(3,'0')}`;
+        }
+
+        // ---------- 全局状态 ----------
+        let originalEntries = [];
+        let displayEntries = [];
+        let fileName = '';
+
+        // DOM
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const entryCountDisplay = document.getElementById('entryCountDisplay');
+        const mergedTextView = document.getElementById('mergedTextView');
+        const translationInput = document.getElementById('translationInput');
+        const copyMergedBtn = document.getElementById('copyMergedBtn');
+        const applyTranslationBtn = document.getElementById('applyTranslationBtn');
+        const clearTranslationBtn = document.getElementById('clearTranslationBtn');
+        const pasteTranslationBtn = document.getElementById('pasteTranslationBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const tableBody = document.getElementById('tableBody');
+        const parseHint = document.getElementById('parseHint');
+        const langNameInput = document.getElementById('langNameInput');
+
+        function updateUI() {
+            const hasOrig = originalEntries.length > 0;
+            entryCountDisplay.innerHTML = hasOrig ? `✅ 原始 ${originalEntries.length} 条 · 拆分后 ${displayEntries.length} 条` : '⏳ 未加载';
+            copyMergedBtn.disabled = !hasOrig;
+            applyTranslationBtn.disabled = !hasOrig;
+            clearTranslationBtn.disabled = !hasOrig;
+            pasteTranslationBtn.disabled = !hasOrig;
+            exportBtn.disabled = !hasOrig;
+            resetBtn.disabled = !hasOrig;
+            
+            if (hasOrig) {
+                const lines = originalEntries.map(e => `[${e.index}] ${e.text.replace(/\s*\n\s*/g, ' ')}`);
+                mergedTextView.value = lines.join('\n');
+            } else {
+                mergedTextView.value = '';
+            }
+            renderTable();
+        }
+
+        function rebuildDisplayEntries() {
+            if (!originalEntries.length) {
+                displayEntries = [];
+                return;
+            }
+            const newDisplay = [];
+            let globalIndex = 1;
+            for (let entry of originalEntries) {
+                const origText = entry.text || '';
+                const transText = entry.translatedText || '';
+                const totalWords = countWords(origText) + countWords(transText);
+                
+                if (totalWords <= 10) {
+                    newDisplay.push({
+                        index: globalIndex++,
+                        start: entry.start,
+                        end: entry.end,
+                        orig: origText,
+                        trans: transText,
+                        wordCount: totalWords,
+                        sourceIndex: entry.index
+                    });
+                } else {
+                    const chunks = splitPairedText(origText, transText, 10);
+                    const startMs = timeToMs(entry.start);
+                    const endMs = timeToMs(entry.end);
+                    const duration = endMs - startMs;
+                    const chunkCount = chunks.length;
+                    const chunkDuration = Math.max(1, Math.floor(duration / chunkCount)); // 至少1ms
+                    
+                    for (let i = 0; i < chunkCount; i++) {
+                        const chunkStart = startMs + i * chunkDuration;
+                        let chunkEnd;
+                        if (i === chunkCount - 1) {
+                            chunkEnd = endMs;
+                        } else {
+                            chunkEnd = startMs + (i + 1) * chunkDuration;
+                        }
+                        if (chunkEnd <= chunkStart) {
+                            chunkEnd = chunkStart + 1;
+                        }
+                        chunkEnd = Math.min(chunkEnd, endMs);
+                        
+                        newDisplay.push({
+                            index: globalIndex++,
+                            start: msToTime(chunkStart),
+                            end: msToTime(chunkEnd),
+                            orig: chunks[i].orig,
+                            trans: chunks[i].trans,
+                            wordCount: countWords(chunks[i].orig) + countWords(chunks[i].trans),
+                            sourceIndex: entry.index
+                        });
+                    }
+                }
+            }
+            displayEntries = newDisplay;
+        }
+
+        function renderTable() {
+            if (!displayEntries.length) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="empty-message">暂无数据</td></tr>`;
+                return;
+            }
+            let html = '';
+            for (let e of displayEntries) {
+                const wordClass = e.wordCount > 10 ? 'warning' : '';
+                html += `<tr>
+                    <td>${e.index}</td>
+                    <td style="font-family:monospace;">${e.start} → ${e.end}</td>
+                    <td>${escapeHtml(e.orig).replace(/\n/g,'<br>')}</td>
+                    <td>${escapeHtml(e.trans).replace(/\n/g,'<br>') || '<span style="color:#94a3b8;">—</span>'}</td>
+                    <td><span class="word-count ${wordClass}">${e.wordCount}</span></td>
+                </tr>`;
+            }
+            tableBody.innerHTML = html;
+        }
+
+        function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        // ---------- 解析字幕 (增强正则，并修复0时长) ----------
+        function parseSubtitle(content) {
+            const entries = [];
+            const cleanContent = content.replace(/^\uFEFF/, '').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+            const blocks = cleanContent.split(/\n\s*\n/);
+            
+            for (let block of blocks) {
+                block = block.trim();
+                if (!block) continue;
+                const lines = block.split('\n').map(l => l.trim()).filter(l => l !== '');
+                if (lines.length < 3) continue;
+                
+                const idxMatch = lines[0].match(/^\d+$/);
+                if (!idxMatch) continue;
+                
+                const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2}[,\.]\d{1,3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{1,3})/);
+                if (!timeMatch) continue;
+                
+                let start = timeMatch[1].replace('.', ',');
+                let end = timeMatch[2].replace('.', ',');
+                
+                // 修复持续时间为0的条目
+                const startMs = timeToMs(start);
+                const endMs = timeToMs(end);
+                if (startMs >= endMs) {
+                    end = msToTime(startMs + 1); // 延长1ms
+                }
+                
+                const text = lines.slice(2).join('\n').trim();
+                
+                entries.push({
+                    index: parseInt(lines[0]),
+                    start: start,
+                    end: end,
+                    text: text,
+                    translatedText: null
+                });
+            }
+            
+            entries.sort((a,b) => a.index - b.index);
+            return entries;
+        }
+
+        // ---------- 多编码尝试 ----------
+        async function tryParseWithEncodings(arrayBuffer) {
+            const encodings = ['UTF-8', 'Shift-JIS', 'EUC-JP', 'GBK', 'ISO-8859-1', 'Windows-1252'];
+            let lastError = null;
+            
+            for (const enc of encodings) {
+                try {
+                    const decoder = new TextDecoder(enc, { fatal: true });
+                    const text = decoder.decode(arrayBuffer);
+                    const parsed = parseSubtitle(text);
+                    if (parsed.length > 0) {
+                        return { parsed, encoding: enc, error: null };
+                    }
+                } catch (e) {
+                    lastError = e;
+                    continue;
+                }
+            }
+            
+            try {
+                const decoder = new TextDecoder('UTF-8', { fatal: false });
+                const text = decoder.decode(arrayBuffer);
+                const parsed = parseSubtitle(text);
+                if (parsed.length > 0) {
+                    return { parsed, encoding: 'UTF-8 (fallback)', error: null };
+                }
+            } catch (e) {
+                lastError = e;
+            }
+            
+            return { parsed: [], encoding: null, error: '所有编码尝试失败，文件可能已损坏或不是标准字幕文件。' };
+        }
+
+        function applyTranslation(transStr) {
+            const map = new Map();
+            const regex = /\[(\d+)\]\s*([\s\S]*?)(?=\n?\s*\[\d+\]|$)/g;
+            let m;
+            while ((m = regex.exec(transStr)) !== null) {
+                map.set(parseInt(m[1]), m[2].trim());
+            }
+            if (map.size === 0) { alert('未检测到[编号]格式'); return false; }
+            let applied = 0;
+            for (let e of originalEntries) {
+                if (map.has(e.index)) {
+                    e.translatedText = map.get(e.index);
+                    applied++;
+                }
+            }
+            parseHint.textContent = `✅ 应用了 ${applied} 条翻译`;
+            rebuildDisplayEntries();
+            updateUI();
+            return true;
+        }
+
+        async function loadFile(file) {
+            fileName = file.name;
+            const arrayBuffer = await file.arrayBuffer();
+            const { parsed, encoding, error } = await tryParseWithEncodings(arrayBuffer);
+            
+            if (error || !parsed.length) {
+                alert(`❌ 解析失败：${error || '未找到任何字幕条目，请检查文件格式。'}`);
+                fileInfo.innerHTML = `<span class="error-text">文件读取失败，可能已损坏或格式不标准</span>`;
+                return;
+            }
+            
+            originalEntries = parsed;
+            translationInput.value = '';
+            rebuildDisplayEntries();
+            updateUI();
+            fileInfo.innerHTML = `📄 ${file.name} (${parsed.length}条) · 编码: ${encoding}`;
+        }
+
+        // ---------- 导出 SRT (已优化空行) ----------
+        function exportSRT() {
+            if (!displayEntries.length) return;
+            let srt = '';
+            for (let e of displayEntries) {
+                let subtitleText = '';
+                if (e.orig && e.trans) {
+                    subtitleText = `${e.orig}\n${e.trans}`;
+                } else if (e.orig) {
+                    subtitleText = e.orig;
+                } else if (e.trans) {
+                    subtitleText = e.trans;
+                }
+                srt += `${e.index}\n${e.start} --> ${e.end}\n${subtitleText}\n\n`;
+            }
+            const blob = new Blob([srt], {type: 'text/plain;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const base = fileName.replace(/\.(srt|bcc|txt)$/i,'') || 'subtitle';
+            
+            let lang = langNameInput.value.trim();
+            if (!lang) lang = '译文';
+            
+            a.download = `【已翻译-${lang}】${base}.srt`;
+            a.href = url; a.click(); URL.revokeObjectURL(url);
+        }
+
+        // ---------- 复制完整提示词 ----------
+        async function copyFullPrompt() {
+            if (!mergedTextView.value) return;
+
+            let targetLang = langNameInput.value.trim();
+            if (!targetLang) targetLang = '简体中文';
+
+            const mergedText = mergedTextView.value;
+
+            const promptTemplate = `【角色设定】
+你是一位精通多语种的字幕翻译专家，能够将各类外语字幕准确翻译为指定的目标语言，译文风格得体、措辞考究，适用于纪录片、访谈、讲座等正式场合。
+
+【任务】
+请将以下以 [数字] 开头的字幕文本逐条翻译为 ${targetLang} 。
+
+【翻译要求】
+1. 严格格式：必须完整保留每一条开头的 [数字] 编号，仅翻译编号之后的内容。
+   - 例如输入 "[1] Thank you for coming."，目标语言为“法语”，则应输出 "[1] Merci d'être venu."
+
+2. 翻译范围：
+   - 将任何非目标语言的外语内容翻译为目标语言。
+   - 若原文中已包含目标语言的部分，请保留原样，只翻译其他外语部分。
+   - 专有名词（人名、地名、品牌名、机构名、作品名等）保留原文，不进行翻译。
+
+3. 语言风格：
+   - 译文应自然流畅，符合目标语言的表达习惯。
+   - 若目标语言有敬语体系（如日语、韩语），请使用适当的敬体或谦体，风格偏向正式书面语。
+   - 措辞精准，避免俚语和过度口语化。
+
+4. 断句与简洁性：
+   - 若原句过长，可在分句或标点处合理断句，但绝不可将多条字幕（不同编号）合并。
+   - 译文应在保证准确的前提下力求简洁，以适配字幕阅读速度。
+
+5. 格式保留：原文中的换行符 \\n、标点符号、特殊标记（如 <i> 斜体、引号）请原样保留，仅替换外语部分为目标语言。
+
+6. 纯输出：只返回翻译后的带编号文本，不得附加任何解释、注释或额外对话。
+
+【输出示例】（假设目标语言为“日语”）
+输入：
+[1] It is an honor to be here.
+[2] The museum is closed on Mondays.
+
+输出：
+[1] こちらに来られて光栄です。
+[2] 博物館は月曜日が休館です。
+
+【待翻译内容】
+${mergedText}`;
+
+            try {
+                await navigator.clipboard.writeText(promptTemplate);
+                copyMergedBtn.textContent = '✅ 提示词已复制';
+                setTimeout(() => copyMergedBtn.textContent = '📋 复制完整提示词', 2000);
+            } catch (err) {
+                alert('复制失败，请手动复制');
+            }
+        }
+
+        // ---------- 粘贴译文 ----------
+        async function pasteTranslation() {
+            try {
+                const text = await navigator.clipboard.readText();
+                translationInput.value = text;
+                parseHint.textContent = '📋 已从剪贴板粘贴译文';
+            } catch (err) {
+                alert('无法读取剪贴板，请手动粘贴（Ctrl+V）');
+            }
+        }
+
+        // ---------- 事件绑定 ----------
+        dropZone.addEventListener('click', ()=> fileInput.click());
+        dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e=>{
+            e.preventDefault(); dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) loadFile(file);
+        });
+        fileInput.addEventListener('change', ()=>{
+            if (fileInput.files[0]) loadFile(fileInput.files[0]);
+            fileInput.value = '';
+        });
+
+        copyMergedBtn.addEventListener('click', copyFullPrompt);
+        pasteTranslationBtn.addEventListener('click', pasteTranslation);
+
+        applyTranslationBtn.addEventListener('click', ()=>{
+            if (translationInput.value.trim()) applyTranslation(translationInput.value);
+        });
+        clearTranslationBtn.addEventListener('click', ()=>{
+            translationInput.value = ''; parseHint.textContent = '';
+        });
+        resetBtn.addEventListener('click', ()=>{
+            for (let e of originalEntries) e.translatedText = null;
+            translationInput.value = '';
+            rebuildDisplayEntries();
+            updateUI();
+            parseHint.textContent = '🔄 翻译已重置';
+        });
+        exportBtn.addEventListener('click', exportSRT);
+        
+        updateUI();
+    })();
+</script>
+</body>
+</html>
